@@ -3,8 +3,6 @@ import pytest
 
 from pages.main_page import MainPage
 from pages.order_page import OrderPage
-from selenium.webdriver.support.ui import WebDriverWait
-
 
 USERS = [
     {
@@ -23,33 +21,43 @@ USERS = [
     },
 ]
 
+DZEN_URL_PARTS = ("dzen.ru", "yandex.ru")
+
+
+@pytest.fixture(params=USERS, ids=["точка входа сверху", "точка входа снизу"])
+def created_order(request, driver):
+    main = MainPage(driver)
+    order = OrderPage(driver)
+    with allure.step("Оформляем заказ через кнопку «Заказать»"):
+        main.open()
+        main.click_order_button(request.param["entry_point"])
+        order.fill_user_info(request.param)
+        order.fill_rent_info(request.param)
+        order.confirm_order()
+    return main, order
+
 
 class TestOrder:
-    @allure.title("Позитивный флоу заказа самоката: точка входа «{user[entry_point]}»")
+    @allure.title("После успешного оформления появляется всплывающее окно заказа")
     @allure.feature("Оформление заказа")
-    @pytest.mark.parametrize("user", USERS)
-    def test_order_success_flow(self, driver, user):
-        main = MainPage(driver)
-        order = OrderPage(driver)
-
-        main.open()
-        main.click_order_button(user["entry_point"])
-        order.fill_user_info(user)
-        order.fill_rent_info(user)
-        order.confirm_order()
-
+    def test_order_success_popup_visible(self, created_order):
+        _, order = created_order
         assert order.is_success_popup_visible()
 
-        # Проверяем логотип Самоката — возврат на главную
+    @allure.title("Клик по логотипу Самоката возвращает на главную страницу")
+    @allure.feature("Навигация")
+    def test_samokat_logo_opens_main_page(self, created_order):
+        main, _ = created_order
         main.click_samokat_logo()
-        assert "qa-scooter.praktikum-services.ru" in driver.current_url
+        assert MainPage.MAIN_URL in main.get_current_url()
 
-        # Проверяем логотип Яндекса — редирект в Дзен в новом окне
+    @allure.title("Клик по логотипу Яндекса открывает Дзен в новом окне")
+    @allure.feature("Навигация")
+    def test_yandex_logo_opens_dzen(self, created_order):
+        main, _ = created_order
+        # Возвращаемся на главную, где доступен логотип Яндекса
+        main.click_samokat_logo()
         main.click_yandex_logo()
         main.switch_to_new_window()
-        WebDriverWait(driver, 10).until(
-            lambda d: "dzen.ru" in d.current_url or "yandex.ru" in d.current_url
-        )
-        assert "dzen.ru" in driver.current_url or "yandex.ru" in driver.current_url
-
-
+        main.wait_url_contains_any(DZEN_URL_PARTS)
+        assert any(p in main.get_current_url() for p in DZEN_URL_PARTS)
